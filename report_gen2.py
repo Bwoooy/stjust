@@ -82,18 +82,28 @@ def leer_datos_desde_excel(ruta_excel):
     # Leer los datos de cada fila y agregarlos a la lista
     for _, fila in df.iterrows():
         titulo = fila["_title"]
-        valores_columnas = [str(fila[col]) for col in df.columns if str(col).lower()[0] in ["v", "e", "c"] and pd.notna(fila[col])]
-        #lloc2 = str(fila["lloc"])  # Variable separada para almacenar el valor de la columna "lloc" del Excel
-        datos_filas.append((titulo, valores_columnas, str(fila["lloc_thoroughfare"]), str(fila["lloc"]),
-                            fila["1_amidament"], fila["1_unitats"],
-                            fila["2_amidament"], fila["2_unitats"],
-                            fila["3_amidament"], fila["3_unitats"],
-                            fila["data"],fila["imatges"],
-                            fila["_latitude"],fila["_longitude"]))
         
-    #print(datos_filas)    
+        # Recogiendo los tipos de desperfectos, solo si existen (no son NaN)
+        desperfectos = []
+        for col in ["tipus_de_desperfecte", "2_tipus_de_desperfecte", "3_tipus_de_desperfecte"]:
+            if pd.notna(fila[col]):
+                desperfectos.append(fila[col])
 
-    return datos_filas #,lloc2
+        # Otros valores de interés
+        lloc = str(fila["lloc"])
+        lloc_thoroughfare = fila["lloc_thoroughfare"]  # Asegúrate de que este nombre de columna es correcto
+        amidaments = [fila[f"{i}_amidament"] for i in range(1, 4)]
+        unitats = [fila[f"{i}_unitats"] for i in range(1, 4)]
+        fecha = fila["data"]
+        imatges = fila["imatges"]
+        latitud = fila["_latitude"]
+        longitud = fila["_longitude"]
+
+        # Agregar la fila de datos a la lista
+        datos_filas.append((titulo, desperfectos, lloc_thoroughfare, lloc, amidaments, unitats, fecha, imatges, latitud, longitud))
+        
+    return datos_filas
+
 
 def combinar_strings(lista1, lista2):
     # Combinar las listas en el formato deseado
@@ -120,167 +130,86 @@ def crear_tablas_informes(datos_filas):
     # Crear el objeto Document
     doc = Document()
 
-    # Datos para la tabla de la columna izquierda
-    valores_columna_izquierda = [
-        "Incidència",
-        "Primer desperfecte",
-        "Segon desperfecte",
-        "Tercer desperfecte",
-        "Data",
-        "Lloc"
-    ]
-
     carpeta_imagenes = r"C:\Users\itacl\stjust\data\photos"
 
     # Crear una tabla para cada fila de datos
     for datos_fila in datos_filas:
-        titulo, valores_columnas, lloc, lloc2, amidament1, unitats1, amidament2, unitats2, amidament3, unitats3, fecha, imatges, latitud, longitud = datos_fila
+        titulo, desperfectos,lloc_thoroughfare, lloc, amidaments, unitats, fecha, imatges, latitud, longitud = datos_fila
+
+        # Dividir el título en elementos
+        elementos = titulo.split(", ")
 
         # Crear la tabla
-        filas = 7  # Se ajusta a 7 para tener 6 filas de datos y la fila de encabezados
-        columnas = 2
-        tabla = doc.add_table(rows=filas, cols=columnas)
-
+        tabla = doc.add_table(rows=1, cols=2)
         tabla.style = 'Table Grid'
 
-        # Llenar la columna izquierda de la tabla
-        for i, valor in enumerate(valores_columna_izquierda):
-            celda = tabla.cell(i, 0)  # Columna izquierda está en la posición 0
-            celda.text = valor
-
-        # Combinar los valores de la columna derecha
-        valores_combinados = combinar_strings(titulo.split(", "), valores_columnas)
-
-        # Agregar el valor de la columna "lloc" al final de la celda (1, 2)
-        valores_combinados += f" al {lloc}"
-
-        # Llenar la posición (1, 1) con formato
-
+        # Configurar la primera fila con la descripción de la incidencia
+        tabla.cell(0, 0).text = "Incidència"
+        descripcion_incidencia = ", ".join([f"{elem} {desp}" for elem, desp in zip(elementos, desperfectos)]) + f" a {lloc_thoroughfare}"
+        tabla.cell(0, 1).text = descripcion_incidencia
         set_background_color(tabla.cell(0, 0), "002060")
-
         apply_font_format(tabla.cell(0, 0), bold=True, font_color=RGBColor(255, 255, 255))
 
-        # Posición (1, 2) de la tabla
+        # Añadir filas para los desperfectos
+        for i in range(len(desperfectos)):
+            if pd.notna(amidaments[i]):  # Solo añadir si hay amidament
+                row_cells = tabla.add_row().cells
+                row_cells[0].text = f"Desperfecte {i + 1}"
+                descripcion = f"{elementos[i]} {desperfectos[i]} - {amidaments[i]} {unitats[i]}"
+                row_cells[1].text = descripcion
+                set_background_color(row_cells[0], "002060")
+                apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
 
-        celda_derecha = tabla.cell(0, 1)  
-        celda_derecha.text = valores_combinados
-        apply_font_format(tabla.cell(0, 1), font_color=RGBColor(0, 0, 0))
+        # Añadir filas para fecha y lugar
+        for i, valor in enumerate(["Data", "Lloc"], start=1):
+            row_cells = tabla.add_row().cells
+            row_cells[0].text = valor
+            row_cells[1].text = fecha if valor == "Data" else lloc
+            set_background_color(row_cells[0], "002060")
+            apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
 
-        # Llenar la posición (2, 1) con formato
-
-        set_background_color(tabla.cell(1, 0), "002060")
-
-        apply_font_format(tabla.cell(1, 0), bold=True, font_color=RGBColor(255, 255, 255))
-
-        # Llenar la posición (2, 2) con los valores de "1_amidament" y "1_unitats"
-        tabla.cell(1, 1).text = f"{amidament1} {unitats1}"
-        apply_font_format(tabla.cell(1, 1), font_color=RGBColor(0, 0, 0))
-
-        # Llenar la posición (3, 1) con formato
-
-        set_background_color(tabla.cell(2, 0), "002060")
-
-        apply_font_format(tabla.cell(2, 0), bold=True, font_color=RGBColor(255, 255, 255))
-
-        # Llenar la posición (3, 2) con los valores de "2_amidament" y "2_unitats"
-        tabla.cell(2, 1).text = f"{amidament2} {unitats2}"
-        apply_font_format(tabla.cell(2, 1), font_color=RGBColor(0, 0, 0))
-
-        # Llenar la posición (4, 1) con formato
-
-        set_background_color(tabla.cell(3, 0), "002060")
-
-        apply_font_format(tabla.cell(3, 0), bold=True, font_color=RGBColor(255, 255, 255))
-
-        # Llenar la posición (4, 2) con los valores de "3_amidament" y "3_unitats"
-        tabla.cell(3, 1).text = f"{amidament3} {unitats3}"
-        apply_font_format(tabla.cell(3, 1), font_color=RGBColor(0, 0, 0))
-        
-        # Llenar la posición (5, 1) con formato
-
-        set_background_color(tabla.cell(4, 0), "002060")
-
-        apply_font_format(tabla.cell(4, 0), bold=True, font_color=RGBColor(255, 255, 255))
-
-        # Llenar la posición (5, 2) con la fecha en formato dd/mm/yyyy
-
-        fecha_datetime = datetime.strptime(fecha, "%Y-%m-%d")  # Convertir la cadena fecha a un objeto datetime
-        tabla.cell(4, 1).text = fecha_datetime.strftime("%d/%m/%Y")
-        apply_font_format(tabla.cell(4, 1), font_color=RGBColor(0, 0, 0))
-
-        # Llenar la posición (6, 1) con formato
-
-        set_background_color(tabla.cell(5, 0), "002060")
-
-        apply_font_format(tabla.cell(5, 0), bold=True, font_color=RGBColor(255, 255, 255))
-
-        # Llenar la posición (6, 2) con el valor de "lloc"
-        tabla.cell(5, 1).text = lloc2
-        apply_font_format(tabla.cell(5, 1), font_color=RGBColor(0, 0, 0))
-
-        # Leer los identificadores de imágenes de la columna "imatges"
+        # Agregar imágenes dentro de la tabla
         identificadores_imagenes = imatges.split(",")[:2]  # Tomar los dos primeros identificadores
+        if len(identificadores_imagenes) > 0:
+            row_imagenes = tabla.add_row().cells
+            for i, identificador in enumerate(identificadores_imagenes):
+                ruta_imagen = os.path.join(carpeta_imagenes, f"{identificador}.jpg")
+                if os.path.exists(ruta_imagen):
+                    run = row_imagenes[i].paragraphs[0].add_run()
+                    run.add_picture(ruta_imagen, height=Inches(2.0))
+                    row_imagenes[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-        # Redimensionar e insertar las imágenes en la celda (7,1) y (7,2) de la tabla
-        for i, identificador in enumerate(identificadores_imagenes):
-            ruta_imagen = os.path.join(carpeta_imagenes, f"{identificador}.jpg")
-            if os.path.exists(ruta_imagen):
-                celda_imagen = tabla.cell(6, i)  # Fila 7
-                celda_imagen.paragraphs[0].add_run("\n")
-                celda_imagen.paragraphs[0].alignment = 1  # Alinear imagen al centro de la celda
-                celda_imagen.paragraphs[0].add_run().add_picture(ruta_imagen, height=Inches(2.0))  # Ajustar el tamaño de la imagen (2.0 pulgadas)
-                celda_imagen.paragraphs[0].add_run("\n")
-
-        # Eliminar la fila correspondiente si 2_amidament o 3_amidament es NaN
-        if pd.isna(amidament3):
-            tabla._tbl.remove(tabla.rows[3]._tr)       
-        
-        if pd.isna(amidament2):
-            tabla._tbl.remove(tabla.rows[2]._tr)
-
-        # Agregar un salto de línea después de cada tabla
-        doc.add_paragraph("")  # Agregar un salto de línea    
-
-        # Generar el mapa de Folium y obtener la ruta del archivo HTML temporal
+        # Generar y agregar el mapa
         mapa_html_file = generar_mapa_folium(latitud, longitud)
-
-        # Crear una captura de pantalla del mapa utilizando Selenium WebDriver y guardarla como archivo temporal
         options = Options()
-        options.add_argument('--headless')  # Ejecutar el navegador en modo silencioso (sin ventana)
+        options.add_argument('--headless')
         driver = webdriver.Chrome(options=options)
-
-        driver.get("file:///" + mapa_html_file)  # Abrir el archivo HTML local
-        driver.set_window_size(800, 600)  # Ajustar el tamaño de la ventana para la captura de pantalla
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-            ruta_imagen_geolocalizacion = tmpfile.name
-            driver.save_screenshot(ruta_imagen_geolocalizacion)
-
+        driver.get("file:///" + mapa_html_file)
+        driver.set_window_size(800, 600)
+        ruta_imagen_geolocalizacion = tempfile.mktemp(suffix=".png")
+        driver.save_screenshot(ruta_imagen_geolocalizacion)
         driver.quit()
-
-        # Eliminar el archivo HTML temporal después de usarlo
         os.remove(mapa_html_file)
-
-        # Agregar la imagen al documento Word después de cada tabla
-        doc.add_picture(ruta_imagen_geolocalizacion, width=Inches(4.0))  # Ajustar el tamaño de la imagen (6.0 pulgadas)
-        ultimo_parrafo = doc.paragraphs[-1]
-        ultimo_parrafo.alignment = WD_ALIGN_PARAGRAPH.CENTER  # Alinear el párrafo al centro del documento
+        paragraph = doc.add_paragraph()
+        run = paragraph.add_run()
+        run.add_picture(ruta_imagen_geolocalizacion, width=Inches(4.0))
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        os.remove(ruta_imagen_geolocalizacion)
 
         # Agregar un salto de página después de cada tabla
         doc.add_page_break()
 
     # Agregar cabecera y pie de página
-
     agregar_cabecera(doc)
     agregar_pie_de_pagina(doc)
 
     # Guardar el documento en un archivo
-
     doc.save("informes_word.docx")
+
 
 if __name__ == "__main__":
     # Ruta del archivo Excel
-    ruta_excel = r"C:\Users\itacl\stjust\data\appauditoria.xlsx"
+    ruta_excel = r"C:\Users\itacl\stjust\data\auditoriastjust.xlsx"
 
     # Leer los datos del Excel
     datos_filas = leer_datos_desde_excel(ruta_excel)
