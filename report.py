@@ -169,7 +169,7 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes):
             if pd.notna(amidaments[i]):  # Solo añadir si hay amidament
                 row_cells = tabla.add_row().cells
                 row_cells[0].text = f"Desperfecte {i + 1}"
-                descripcion = f"{elementos[i]} {desperfectos[i]} - {amidaments[i]} {unitats[i]}"
+                descripcion = f"{elementos[i]} {desperfectos[i]} - {str(amidaments[i])} {str(unitats[i])}"
                 row_cells[1].text = descripcion
                 set_background_color(row_cells[0], "002060")
                 apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
@@ -178,7 +178,7 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes):
         for i, valor in enumerate(["Data", "Lloc"], start=1):
             row_cells = tabla.add_row().cells
             row_cells[0].text = valor
-            row_cells[1].text = fecha if valor == "Data" else lloc
+            row_cells[1].text = str(fecha) if valor == "Data" else lloc
             set_background_color(row_cells[0], "002060")
             apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
 
