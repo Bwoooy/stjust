@@ -5,6 +5,7 @@ from docx.shared import Inches, Pt, RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ROW_HEIGHT_RULE
 import os
 import sys
 import folium
@@ -34,7 +35,7 @@ def agregar_pie_de_pagina(doc):
     parrafo = pie_de_pagina.add_paragraph()
 
     # Agregar el texto "SOBRE A. CRITERIS AVALUABLES A JUDICI DE VALOR" al párrafo
-    run = parrafo.add_run("SOBRE A. CRITERIS AVALUABLES A JUDICI DE VALOR")
+    run = parrafo.add_run("SOBRE B. CRITERIS AVALUABLES A JUDICI DE VALOR")
     run.font.bold = True  # Aplicar negrita al texto
     run.font.size = Pt(9)  # Tamaño de fuente
     run.font.color.rgb = RGBColor(0x00, 0x70, 0xC0)  # Color azul #0088FF
@@ -54,65 +55,80 @@ def set_font_style(element, font_name):
     element.rPr.rFonts.set(qn('w:hAnsi'), font_name)
     element.rPr.rFonts.set(qn('w:cs'), font_name)
 
-def apply_font_format(cell, bold=False, font_color=None):
-    # Obtener el párrafo de la celda
+def apply_font_format(cell, bold=False, font_color=None, alignment=WD_ALIGN_PARAGRAPH.LEFT):
     paragraph = cell.paragraphs[0]
-
-    # Obtener el elemento "r" que representa el texto del párrafo
-    run = paragraph.runs[0]
-
-    # Aplicar formato de fuente
-
+    if not paragraph.runs:
+        run = paragraph.add_run()
+    else:
+        run = paragraph.runs[0]
     run.font.size = Pt(11)
-
-    if bold==True:  
+    if bold:
         run.bold = bold
-
-    # Configurar fuente Arial
-    run.font.name = "Arial"
     if font_color:
         run.font.color.rgb = font_color
+    paragraph.alignment = alignment
 
-def leer_datos_desde_excel(ruta_excel):
+def leer_datos_desde_excel(ruta_excel, ruta_excel_calles):
     # Leer el archivo Excel y cargarlo en un DataFrame de pandas
     df = pd.read_excel(ruta_excel)
+
+    df_calles = pd.read_excel(ruta_excel_calles)
+    df['barri'] = ''
+
+    for index, row in df.iterrows():
+        lloc_thoroughfare = row['lloc_thoroughfare'].lower() if pd.notna(row['lloc_thoroughfare']) else ''
+        for _, calle_row in df_calles.iterrows():
+            nom_via = calle_row['NOM_VIA'].lower() if pd.notna(calle_row['NOM_VIA']) else ''
+            if nom_via in lloc_thoroughfare:
+                df.at[index, 'barri'] = calle_row['BARRI']
+                break
 
     # Lista para almacenar los datos de cada fila
     datos_filas = []
 
     # Leer los datos de cada fila y agregarlos a la lista
     for _, fila in df.iterrows():
+        # Recogiendo los datos necesarios de la fila
         titulo = fila["_title"]
-        
-        # Recogiendo los tipos de desperfectos, solo si existen (no son NaN)
-        desperfectos = []
-        for col in ["tipus_de_desperfecte", "2_tipus_de_desperfecte", "3_tipus_de_desperfecte"]:
-            if pd.notna(fila[col]):
-                desperfectos.append(fila[col])
-
-        # Otros valores de interés
         lloc = str(fila["lloc"])
-        lloc_thoroughfare = fila["lloc_thoroughfare"]  # Asegúrate de que este nombre de columna es correcto
-        amidaments = [fila[f"{i}_amidament"] for i in range(1, 4)]
-        unitats = [fila[f"{i}_unitats"] for i in range(1, 4)]
+        lloc_thoroughfare = fila["lloc_thoroughfare"] 
         fecha = fila["data"]
         imatges = fila["imatges"]
         latitud = fila["_latitude"]
         longitud = fila["_longitude"]
+        barri = fila["barri"] 
+        edifici = fila["edifici"] 
+        sala = fila["sala"] 
+        numero_de_planta = fila["numero_de_planta"]
 
+        #Num rubatec 
+        
+        num_incidencia = fila["num_incidencia"]    
+
+        # Recogiendo los tipos de operaciones y las interferencias, solo si existen (no son NaN)
+        desperfectos = []
+        amidament = []
+        unitats = []
+        interferencias = []
+        propuestas = []
+        for i in range(1, 4):
+            if pd.notna(fila[f"{i}_tipus_de_desperfecte"]):
+                desperfectos.append(fila[f"{i}_tipus_de_desperfecte"])
+            if pd.notna(fila[f"{i}_amidament"]):
+                amidament.append(fila[f"{i}_amidament"])
+            if pd.notna(fila[f"{i}_unitats"]):
+                unitats.append(fila[f"{i}_unitats"])           
+            if pd.notna(fila[f"{i}_tipus_operacio"]):
+                propuestas.append(fila[f"{i}_tipus_operacio"])            
+            if pd.notna(fila[f"{i}_interferencia"]):
+                interferencias.append(fila[f"{i}_interferencia"])
         # Agregar la fila de datos a la lista
-        datos_filas.append((titulo, desperfectos, lloc_thoroughfare, lloc, amidaments, unitats, fecha, imatges, latitud, longitud))
+        datos_filas.append((
+            titulo, lloc, lloc_thoroughfare, fecha, imatges, latitud, longitud, barri,
+            edifici, sala, numero_de_planta,desperfectos, amidament,unitats, propuestas , interferencias, num_incidencia
+        ))
         
     return datos_filas
-
-
-def combinar_strings(lista1, lista2):
-    # Combinar las listas en el formato deseado
-    combinacion = []
-    for i, item in enumerate(lista1):
-        valor = lista2[i] if i < len(lista2) else ""
-        combinacion.append(f"{item} {valor}")
-    return ", ".join(combinacion)
 
 def generar_mapa_folium(latitud, longitud):
     mapa = folium.Map(location=[latitud, longitud], max_zoom=19, zoom_start=19)
@@ -141,46 +157,114 @@ def crear_driver_web():
     # Crear y retornar el driver de Chrome sin especificar la ruta
     return webdriver.Chrome(options=options)
 
+def crear_bloque_desperfecto(tabla, i, desperfecto, amidament,unitats, interferencia, propuesta):
+    # Asumiendo que 'tabla' es un objeto de tabla de python-docx
+    titles = ["Desperfecte", "Amidament", "Interferència/afecció amb altres usos públics", "Proposta d'activitat"]
+    values = [desperfecto, f"{amidament} {unitats}", interferencia, propuesta]
 
-def crear_tablas_informes(datos_filas,carpeta_imagenes):
+    for title, value in zip(titles, values):
+        row_cells = tabla.add_row().cells
+        row_cells[0].text = f"{title} {i+1}" if title == "Desperfecte" else title
+        set_background_color(row_cells[0], 'C4BC96')
+        apply_font_format(row_cells[0], alignment=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, font_color=RGBColor(0x1F, 0x49, 0x7D) if title in ["Desperfecte", "Proposta d'activitat"] else RGBColor(255, 255, 255))
+        row_cells[1].text = str(value)
+        apply_font_format(row_cells[1])  # Formato por defecto en negro
+
+def add_building_info(tabla, edifici, sala, numero_de_planta):
+    if pd.isna(edifici):
+        return
+
+    info_titles = ["EDIFICI", "SALA", "PLANTA"]
+    info_values = [edifici, sala, numero_de_planta]
+
+    for title, value in zip(info_titles, info_values):
+        row = tabla.add_row().cells
+        row[0].text = title
+        set_background_color(row[0], '948A54')
+        apply_font_format(row[0], bold=True, font_color=RGBColor(255, 255, 255))
+        row[1].text = str(value)
+        apply_font_format(row[1])   
+
+def agregar_imagen_mapa_barrio(doc, barri, carpeta_mapas_barrios):
+    for archivo in os.listdir(carpeta_mapas_barrios):
+        if archivo.lower().endswith('.jpg') and barri.lower() in archivo.lower():
+            ruta_imagen_barrio = os.path.join(carpeta_mapas_barrios, archivo)
+            if os.path.exists(ruta_imagen_barrio):
+                paragraph = doc.add_paragraph()
+                run = paragraph.add_run()
+                run.add_picture(ruta_imagen_barrio, width=Inches(4.0))
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                break  # Salir del bucle una vez que se encuentra y agrega la imagen correspondiente            
+
+def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
     # Crear el objeto Document
     doc = Document()
 
     # Crear una tabla para cada fila de datos
-    for datos_fila in datos_filas:
-        titulo, desperfectos,lloc_thoroughfare, lloc, amidaments, unitats, fecha, imatges, latitud, longitud = datos_fila
+    for datos in datos_filas:
+        
+        titulo, lloc, lloc_thoroughfare, fecha, imatges, latitud, longitud, barri, edifici, sala, numero_de_planta,desperfectos,amidaments,unitats, propuestas , interferencias, num_incidencia = datos
 
         # Dividir el título en elementos
         elementos = titulo.split(", ")
 
-        # Crear la tabla
-        tabla = doc.add_table(rows=1, cols=2)
+        # Crear la tabla con 5 filas y 2 columnas
+        tabla = doc.add_table(rows=5, cols=2)
         tabla.style = 'Table Grid'
+        
+        # Configuración de las celdas de la tabla
+        for row in tabla.rows:
+            for cell in row.cells:
+                cell.width = Inches(3.5)
+        
+        # Primera fila - "INCIDÈNCIA"
+        celda_encabezado = tabla.cell(0, 0)
+        celda_encabezado.merge(tabla.cell(0, 1))
+        celda_encabezado.height = Pt(30)
+        celda_encabezado.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        celda_encabezado.text = "INCIDÈNCIA Nº "+ str(num_incidencia) 
+        set_background_color(celda_encabezado, '948A54')
+        apply_font_format(celda_encabezado, bold=True, font_color=RGBColor(0x00, 0x20, 0x60), alignment=WD_ALIGN_PARAGRAPH.CENTER)
 
-        # Configurar la primera fila con la descripción de la incidencia
-        tabla.cell(0, 0).text = "Incidència"
+        # Fila fantasma
+
+        
+
+        # Segunda fila - Descripción de la incidencia
+        celda_descripcion = tabla.cell(1, 0)
+        celda_descripcion.merge(tabla.cell(1, 1))
         descripcion_incidencia = ", ".join([f"{elem} {desp}" for elem, desp in zip(elementos, desperfectos)]) + f" a {lloc_thoroughfare}"
-        tabla.cell(0, 1).text = descripcion_incidencia
-        set_background_color(tabla.cell(0, 0), "002060")
-        apply_font_format(tabla.cell(0, 0), bold=True, font_color=RGBColor(255, 255, 255))
+        celda_descripcion.text = str(descripcion_incidencia)
+        apply_font_format(celda_descripcion, bold=True)  # Fuente por defecto en negro
 
-        # Añadir filas para los desperfectos
-        for i in range(len(desperfectos)):
-            if pd.notna(amidaments[i]):  # Solo añadir si hay amidament
-                row_cells = tabla.add_row().cells
-                row_cells[0].text = f"Desperfecte {i + 1}"
-                descripcion = f"{elementos[i]} {desperfectos[i]} - {str(amidaments[i])} {str(unitats[i])}"
-                row_cells[1].text = descripcion
-                set_background_color(row_cells[0], "002060")
-                apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
+        # Tercera fila - "DATA"
+        celda_data = tabla.cell(2, 0)
+        celda_data.text = "DATA"
+        set_background_color(celda_data, '948A54')
+        apply_font_format(celda_data, bold=True, font_color=RGBColor(255, 255, 255))
+        tabla.cell(2, 1).text = str(fecha)
+        apply_font_format(tabla.cell(2, 1))  # Fuente por defecto en negro
 
-        # Añadir filas para fecha y lugar
-        for i, valor in enumerate(["Data", "Lloc"], start=1):
-            row_cells = tabla.add_row().cells
-            row_cells[0].text = valor
-            row_cells[1].text = str(fecha) if valor == "Data" else lloc
-            set_background_color(row_cells[0], "002060")
-            apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255))
+        # Cuarta fila - "BARRI"
+        celda_barri = tabla.cell(3, 0)
+        celda_barri.text = "BARRI"
+        set_background_color(celda_barri, '948A54')
+        apply_font_format(celda_barri, bold=True, font_color=RGBColor(255, 255, 255))
+        tabla.cell(3, 1).text = str(barri)
+        apply_font_format(tabla.cell(3, 1))  # Fuente por defecto en negro
+
+        # Quinta fila - "LOCALITZACIÓ"
+        celda_localitzacio = tabla.cell(4, 0)
+        celda_localitzacio.text = "LOCALITZACIÓ"
+        set_background_color(celda_localitzacio, '948A54')
+        apply_font_format(celda_localitzacio, bold=True, font_color=RGBColor(255, 255, 255))
+        tabla.cell(4, 1).text = str(lloc_thoroughfare)
+        apply_font_format(tabla.cell(4, 1))  # Fuente por defecto en negro
+        
+        add_building_info(tabla, edifici, sala, numero_de_planta)
+
+        for i, (desperfecto, amdt, unit, interf, prop) in enumerate(zip(desperfectos, amidaments, unitats, interferencias, propuestas)):
+            crear_bloque_desperfecto(tabla, i, desperfecto, amdt, unit, interf, prop)
 
         # Agregar imágenes dentro de la tabla
         identificadores_imagenes = imatges.split(",")[:2]  # Tomar los dos primeros identificadores
@@ -192,6 +276,10 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes):
                     run = row_imagenes[i].paragraphs[0].add_run()
                     run.add_picture(ruta_imagen, height=Inches(2.0))
                     row_imagenes[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        doc.add_page_break()
+
+        agregar_imagen_mapa_barrio(doc, barri, carpeta_mapas_barrios)
 
         # Generar y agregar el mapa
         print("Generando mapa con Folium")
@@ -225,10 +313,10 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes):
 import tkinter as tk
 from tkinter import filedialog
 
-def generar_informes(ruta_excel, carpeta_imagenes):
+def generar_informes(ruta_excel, carpeta_imagenes, ruta_excel_calles, carpeta_mapas_barrios):
     print("Inicio de generar_informes")
-    datos_filas = leer_datos_desde_excel(ruta_excel)
-    crear_tablas_informes(datos_filas, carpeta_imagenes)
+    datos_filas = leer_datos_desde_excel(ruta_excel, ruta_excel_calles)
+    crear_tablas_informes(datos_filas, carpeta_imagenes, carpeta_mapas_barrios)
     print("Fin de generar_informes")
 
 
@@ -243,29 +331,57 @@ def main():
         entry_photos_path.delete(0, tk.END)
         entry_photos_path.insert(0, foldername)
 
+    def browse_streets_excel():
+        filename = filedialog.askopenfilename()
+        entry_streets_excel_path.delete(0, tk.END)
+        entry_streets_excel_path.insert(0, filename)
+
+    def browse_barrios_map_folder():
+        foldername = filedialog.askdirectory()
+        entry_barrios_map_path.delete(0, tk.END)
+        entry_barrios_map_path.insert(0, foldername)
+
     def execute_script():
         ruta_excel = entry_excel_path.get()
         carpeta_imagenes = entry_photos_path.get()
-        # Aquí llamas a tu función principal del script con ruta_excel y carpeta_imagenes
-        generar_informes(ruta_excel, carpeta_imagenes)
+        ruta_excel_calles = entry_streets_excel_path.get()
+        carpeta_mapas_barrios = entry_barrios_map_path.get()
+        # Aquí llamas a tu función principal del script con las rutas y carpetas obtenidas
+        generar_informes(ruta_excel, carpeta_imagenes, ruta_excel_calles, carpeta_mapas_barrios)
 
     root = tk.Tk()
     root.title("Generador de Informes")
 
-    tk.Label(root, text="Ruta al archivo Excel:").pack()
+    # Configuración de la GUI para seleccionar el archivo Excel principal
+    tk.Label(root, text="Ruta al archivo Excel principal:").pack()
     entry_excel_path = tk.Entry(root, width=50)
     entry_excel_path.pack()
     tk.Button(root, text="Buscar", command=browse_file).pack()
 
+    # Configuración de la GUI para seleccionar la carpeta de fotos
     tk.Label(root, text="Ruta a la carpeta de fotos:").pack()
     entry_photos_path = tk.Entry(root, width=50)
     entry_photos_path.pack()
     tk.Button(root, text="Buscar", command=browse_folder).pack()
 
+    # Configuración de la GUI para seleccionar el archivo Excel de calles y barrios
+    tk.Label(root, text="Ruta al archivo Excel de calles y barrios:").pack()
+    entry_streets_excel_path = tk.Entry(root, width=50)
+    entry_streets_excel_path.pack()
+    tk.Button(root, text="Buscar", command=browse_streets_excel).pack()
+
+    # Configuración de la GUI para seleccionar la carpeta de mapas de barrios
+    tk.Label(root, text="Ruta a la carpeta de mapas de barrios:").pack()
+    entry_barrios_map_path = tk.Entry(root, width=50)
+    entry_barrios_map_path.pack()
+    tk.Button(root, text="Buscar", command=browse_barrios_map_folder).pack()
+
+    # Botón para ejecutar el script
     tk.Button(root, text="Generar Informes", command=execute_script).pack()
 
     root.mainloop()
 
 if __name__ == "__main__":
     main()
+
 
