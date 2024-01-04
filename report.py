@@ -2,9 +2,10 @@ from docx import Document
 import pandas as pd
 from datetime import datetime
 from docx.shared import Inches, Pt, RGBColor  
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import qn, nsdecls
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.table import _Cell
 from docx.enum.table import WD_ROW_HEIGHT_RULE
 import os
 import sys
@@ -50,18 +51,33 @@ def set_background_color(cell, color):
     shd.set(qn('w:fill'), color)
     tc_pr.append(shd)
 
+def set_cell_border(cell: _Cell, border_color: str):
+    # Establecer el color del borde de una celda
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+
+    # Crear elemento para bordes de celda
+    tcBorders = parse_xml(r'<w:tcBorders {}>'.format(nsdecls('w')) +
+                          '<w:top w:val="single" w:sz="4" w:space="0" w:color="{}"/>'.format(border_color) +
+                          '<w:left w:val="single" w:sz="4" w:space="0" w:color="{}"/>'.format(border_color) +
+                          '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="{}"/>'.format(border_color) +
+                          '<w:right w:val="single" w:sz="4" w:space="0" w:color="{}"/>'.format(border_color) +
+                          '</w:tcBorders>')
+    tcPr.append(tcBorders)
+
+
 def set_font_style(element, font_name):
     element.rPr.rFonts.set(qn('w:ascii'), font_name)
     element.rPr.rFonts.set(qn('w:hAnsi'), font_name)
     element.rPr.rFonts.set(qn('w:cs'), font_name)
 
-def apply_font_format(cell, bold=False, font_color=None, alignment=WD_ALIGN_PARAGRAPH.LEFT):
+def apply_font_format(cell, bold=False, font_color=None, alignment=WD_ALIGN_PARAGRAPH.LEFT, font_size=12):
     paragraph = cell.paragraphs[0]
     if not paragraph.runs:
         run = paragraph.add_run()
     else:
         run = paragraph.runs[0]
-    run.font.size = Pt(11)
+    run.font.size = Pt(font_size)
     if bold:
         run.bold = bold
     if font_color:
@@ -130,6 +146,15 @@ def leer_datos_desde_excel(ruta_excel, ruta_excel_calles):
         
     return datos_filas
 
+def agregar_imagen_en_celda(celda, ruta_imagen):
+    # Crear un párrafo en la celda
+    paragraph = celda.paragraphs[0]
+    run = paragraph.add_run()
+    # Añadir la imagen al párrafo de la celda
+    run.add_picture(ruta_imagen, width=Inches(3))
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+
 def generar_mapa_folium(latitud, longitud):
     mapa = folium.Map(location=[latitud, longitud], max_zoom=19, zoom_start=19)
     
@@ -165,10 +190,11 @@ def crear_bloque_desperfecto(tabla, i, desperfecto, amidament,unitats, interfere
     for title, value in zip(titles, values):
         row_cells = tabla.add_row().cells
         row_cells[0].text = f"{title} {i+1}" if title == "Desperfecte" else title
-        set_background_color(row_cells[0], 'C4BC96')
-        apply_font_format(row_cells[0], alignment=WD_ALIGN_PARAGRAPH.RIGHT, bold=True, font_color=RGBColor(0x1F, 0x49, 0x7D) if title in ["Desperfecte", "Proposta d'activitat"] else RGBColor(255, 255, 255))
+        set_background_color(row_cells[0], '548DD4')
+        apply_font_format(row_cells[0], bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
         row_cells[1].text = str(value)
-        apply_font_format(row_cells[1])  # Formato por defecto en negro
+        set_background_color(row_cells[1], 'BFBFBF')
+        apply_font_format(row_cells[1], alignment=WD_ALIGN_PARAGRAPH.CENTER)  # Formato por defecto en negro BFBFBF
 
 def add_building_info(tabla, edifici, sala, numero_de_planta):
     if pd.isna(edifici):
@@ -180,10 +206,11 @@ def add_building_info(tabla, edifici, sala, numero_de_planta):
     for title, value in zip(info_titles, info_values):
         row = tabla.add_row().cells
         row[0].text = title
-        set_background_color(row[0], '948A54')
-        apply_font_format(row[0], bold=True, font_color=RGBColor(255, 255, 255))
+        set_background_color(row[0], '548DD4')
+        apply_font_format(row[0], bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
         row[1].text = str(value)
-        apply_font_format(row[1])   
+        set_background_color(row[1], 'BFBFBF')
+        apply_font_format(row[1], alignment=WD_ALIGN_PARAGRAPH.CENTER)   
 
 def agregar_imagen_mapa_barrio(doc, barri, carpeta_mapas_barrios):
     for archivo in os.listdir(carpeta_mapas_barrios):
@@ -192,9 +219,16 @@ def agregar_imagen_mapa_barrio(doc, barri, carpeta_mapas_barrios):
             if os.path.exists(ruta_imagen_barrio):
                 paragraph = doc.add_paragraph()
                 run = paragraph.add_run()
-                run.add_picture(ruta_imagen_barrio, width=Inches(4.0))
+                run.add_picture(ruta_imagen_barrio, width=Inches(3.0))
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                break  # Salir del bucle una vez que se encuentra y agrega la imagen correspondiente            
+                break  # Salir del bucle una vez que se encuentra y agrega la imagen correspondiente   
+
+def obtener_ruta_imagen_barrio(barri, carpeta_mapas_barrios):
+    for archivo in os.listdir(carpeta_mapas_barrios):
+        if archivo.lower().endswith('.jpg') and barri.lower() in archivo.lower():
+            return os.path.join(carpeta_mapas_barrios, archivo)
+    return None            
+
 
 def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
     # Crear el objeto Document
@@ -209,7 +243,7 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
         elementos = titulo.split(", ")
 
         # Crear la tabla con 5 filas y 2 columnas
-        tabla = doc.add_table(rows=5, cols=2)
+        tabla = doc.add_table(rows=9, cols=2)
         tabla.style = 'Table Grid'
         
         # Configuración de las celdas de la tabla
@@ -220,51 +254,88 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
         # Primera fila - "INCIDÈNCIA"
         celda_encabezado = tabla.cell(0, 0)
         celda_encabezado.merge(tabla.cell(0, 1))
-        celda_encabezado.height = Pt(30)
-        celda_encabezado.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
         celda_encabezado.text = "INCIDÈNCIA Nº "+ str(num_incidencia) 
-        set_background_color(celda_encabezado, '948A54')
-        apply_font_format(celda_encabezado, bold=True, font_color=RGBColor(0x00, 0x20, 0x60), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        set_background_color(celda_encabezado, '002060')
+        apply_font_format(celda_encabezado, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER, font_size=18)
 
         # Fila fantasma
 
-        
+        celda_fantasma = tabla.cell(1,0)
+        celda_fantasma.merge(tabla.cell(1,1))
 
-        # Segunda fila - Descripción de la incidencia
-        celda_descripcion = tabla.cell(1, 0)
-        celda_descripcion.merge(tabla.cell(1, 1))
+        #TITULO DE LA SEGUNDA FILA - DESCRIPCIÓ DE L'INCIDENCIA
+
+        celda_titulo_descripcio = tabla.cell(2,0)
+        celda_titulo_descripcio.merge(tabla.cell(2,1))
+        celda_titulo_descripcio.text = "DESCRIPCIÓ INCIDÈNCIA"
+        set_background_color(celda_titulo_descripcio, '002060')
+        apply_font_format(celda_titulo_descripcio, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER, font_size=15)
+
+        #  Descripción de la incidencia
+        celda_descripcion = tabla.cell(3, 0)
+        celda_descripcion.merge(tabla.cell(3, 1))
         descripcion_incidencia = ", ".join([f"{elem} {desp}" for elem, desp in zip(elementos, desperfectos)]) + f" a {lloc_thoroughfare}"
         celda_descripcion.text = str(descripcion_incidencia)
-        apply_font_format(celda_descripcion, bold=True)  # Fuente por defecto en negro
+        apply_font_format(celda_descripcion)  # Fuente por defecto en negro
 
-        # Tercera fila - "DATA"
-        celda_data = tabla.cell(2, 0)
-        celda_data.text = "DATA"
-        set_background_color(celda_data, '948A54')
-        apply_font_format(celda_data, bold=True, font_color=RGBColor(255, 255, 255))
-        tabla.cell(2, 1).text = str(fecha)
-        apply_font_format(tabla.cell(2, 1))  # Fuente por defecto en negro
+        #TITULO DE LOS DATOS - DADES
 
-        # Cuarta fila - "BARRI"
-        celda_barri = tabla.cell(3, 0)
+        celda_titulo_dades = tabla.cell(4,0)
+        celda_titulo_dades.merge(tabla.cell(4,1))
+        celda_titulo_dades.text = "DADES"
+        set_background_color(celda_titulo_dades, '002060')
+        apply_font_format(celda_titulo_dades, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER, font_size=15)
+
+        #  "DATA"
+        celda_data = tabla.cell(5, 0)
+        celda_data.text = "DATA DETECCIÓ"
+        set_background_color(celda_data, '548DD4')
+        apply_font_format(celda_data, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        tabla.cell(5, 1).text = str(fecha)
+        set_background_color(tabla.cell(5, 1), 'BFBFBF')
+        apply_font_format(tabla.cell(5, 1), alignment=WD_ALIGN_PARAGRAPH.CENTER)  # Fuente por defecto en negro
+
+        # "BARRI"
+        celda_barri = tabla.cell(6, 0)
         celda_barri.text = "BARRI"
-        set_background_color(celda_barri, '948A54')
-        apply_font_format(celda_barri, bold=True, font_color=RGBColor(255, 255, 255))
-        tabla.cell(3, 1).text = str(barri)
-        apply_font_format(tabla.cell(3, 1))  # Fuente por defecto en negro
+        set_background_color(celda_barri, '548DD4')
+        apply_font_format(celda_barri, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        tabla.cell(6, 1).text = str(barri)
+        set_background_color(tabla.cell(6, 1), 'BFBFBF')
+        apply_font_format(tabla.cell(6, 1), alignment=WD_ALIGN_PARAGRAPH.CENTER)  # Fuente por defecto en negro
 
-        # Quinta fila - "LOCALITZACIÓ"
-        celda_localitzacio = tabla.cell(4, 0)
+        # "LOCALITZACIÓ"
+        celda_localitzacio = tabla.cell(7, 0)
         celda_localitzacio.text = "LOCALITZACIÓ"
-        set_background_color(celda_localitzacio, '948A54')
-        apply_font_format(celda_localitzacio, bold=True, font_color=RGBColor(255, 255, 255))
-        tabla.cell(4, 1).text = str(lloc_thoroughfare)
-        apply_font_format(tabla.cell(4, 1))  # Fuente por defecto en negro
+        set_background_color(celda_localitzacio, '548DD4')
+        apply_font_format(celda_localitzacio, bold=True, font_color=RGBColor(255, 255, 255),alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        tabla.cell(7, 1).text = str(lloc_thoroughfare)
+        set_background_color(tabla.cell(7, 1), 'BFBFBF')
+        apply_font_format(tabla.cell(7, 1), alignment=WD_ALIGN_PARAGRAPH.CENTER)  # Fuente por defecto en negro
+
+        # ELEMENT AFECTAT
+        celda_elem = tabla.cell(8, 0)
+        celda_elem.text = "ELEMENT AFECTAT"
+        set_background_color(celda_elem, '548DD4')
+        apply_font_format(celda_elem, bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        tabla.cell(8, 1).text = str(titulo)
+        set_background_color(tabla.cell(8, 1), 'BFBFBF')
+        apply_font_format(tabla.cell(8, 1), alignment=WD_ALIGN_PARAGRAPH.CENTER)  # Fuente por defecto en negro
+
         
         add_building_info(tabla, edifici, sala, numero_de_planta)
 
         for i, (desperfecto, amdt, unit, interf, prop) in enumerate(zip(desperfectos, amidaments, unitats, interferencias, propuestas)):
             crear_bloque_desperfecto(tabla, i, desperfecto, amdt, unit, interf, prop)
+
+        #INCIDÈNCIA GRÀFICA
+
+        celdas_titulo_incidencia = tabla.add_row().cells
+        celda_titulo_incidencia = celdas_titulo_incidencia[0].merge(celdas_titulo_incidencia[1])
+        celda_titulo_incidencia.text = "INCIDÈNCIA GRÀFICA"
+        set_background_color(celda_titulo_incidencia, '002060')
+        apply_font_format(celda_titulo_incidencia, bold=True, font_size=15, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+            
 
         # Agregar imágenes dentro de la tabla
         identificadores_imagenes = imatges.split(",")[:2]  # Tomar los dos primeros identificadores
@@ -274,13 +345,62 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
                 ruta_imagen = os.path.join(carpeta_imagenes, f"{identificador}.jpg")
                 if os.path.exists(ruta_imagen):
                     run = row_imagenes[i].paragraphs[0].add_run()
-                    run.add_picture(ruta_imagen, height=Inches(2.0))
+                    run.add_picture(ruta_imagen, height=Inches(3.0))
                     row_imagenes[i].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         doc.add_page_break()
 
-        agregar_imagen_mapa_barrio(doc, barri, carpeta_mapas_barrios)
+        #--------------------------------------------------------------
 
+        # Crear la tabla 
+        tabla2 = doc.add_table(rows=7, cols=2)
+        tabla.style = 'Table Grid'
+
+        for row in tabla2.rows:
+            for cell in row.cells:
+                set_cell_border(cell, "FFFFFF")
+
+        coordenades = tabla2.cell(0,0).merge(tabla2.cell(0,1))
+        coordenades.text = "COORDENADES"
+        set_background_color(coordenades, '002060')
+        apply_font_format(coordenades, bold=True, font_color=RGBColor(255, 255, 255), font_size=15,alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+
+        tabla2.cell(1,0).text = "LATITUD" 
+        set_background_color(tabla2.cell(1,0), '548DD4')
+        apply_font_format(tabla2.cell(1,0), bold=True, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+        
+        tabla2.cell(1,1).text = str(latitud) 
+        set_background_color(tabla2.cell(1,1), 'BFBFBF')
+        apply_font_format(tabla2.cell(1,1), bold=True,  alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+        tabla2.cell(2,0).text = "LONGITUD"
+        set_background_color(tabla2.cell(2,0), '548DD4')
+        apply_font_format(tabla2.cell(2,0), bold=True,font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+        tabla2.cell(2,1).text = str(longitud)
+        set_background_color(tabla2.cell(2,1), 'BFBFBF')
+        apply_font_format(tabla2.cell(2,1), bold=True,  alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+        loc_geo = tabla2.cell(3,0).merge(tabla2.cell(3,1))
+        loc_geo.text = "LOCALITZACIÓ GRÀFICA"
+        set_background_color(loc_geo, '002060')
+        apply_font_format(loc_geo, bold=True,font_size=13, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+        tabla2.cell(4,0).merge(tabla2.cell(4,1))
+
+        # AQUI DEBERIA PONER LA FOTO DE MAPA BARRIO
+        ruta_imagen_barrio = obtener_ruta_imagen_barrio(barri, carpeta_mapas_barrios)
+        if ruta_imagen_barrio:
+            agregar_imagen_en_celda(tabla2.cell(4, 0).merge(tabla2.cell(4, 1)), ruta_imagen_barrio)
+
+        geolocalitzacio = tabla2.cell(5,0).merge(tabla2.cell(5,1))
+        geolocalitzacio.text = "GEOLOCALITZACIÓ"
+        set_background_color(geolocalitzacio, '002060')
+        apply_font_format(geolocalitzacio, bold=True, font_size=13, font_color=RGBColor(255, 255, 255), alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+        #AQUI DEBERIA PONER LA FOTO DE FOLIUM
+ 
         # Generar y agregar el mapa
         print("Generando mapa con Folium")
         mapa_html_file = generar_mapa_folium(latitud, longitud)
@@ -294,10 +414,9 @@ def crear_tablas_informes(datos_filas,carpeta_imagenes,carpeta_mapas_barrios):
         driver.save_screenshot(ruta_imagen_geolocalizacion)
         driver.quit()
         os.remove(mapa_html_file)
-        paragraph = doc.add_paragraph()
-        run = paragraph.add_run()
-        run.add_picture(ruta_imagen_geolocalizacion, width=Inches(4.0))
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        agregar_imagen_en_celda(tabla2.cell(6,0).merge(tabla2.cell(6,1)), ruta_imagen_geolocalizacion) 
+
         os.remove(ruta_imagen_geolocalizacion)
 
         # Agregar un salto de página después de cada tabla
